@@ -46,6 +46,56 @@ Contoh command setelah build:
 ./bigrows -file ./data/transaksi.csv -parts 5
 ```
 
+## Cara Menggunakan di Windows
+
+Build aplikasi menjadi `csvsplitter.exe`:
+
+```powershell
+go build -o csvsplitter.exe
+```
+
+Jalankan langsung dengan lokasi file CSV:
+
+```powershell
+.\csvsplitter.exe -file .\dir\transaksi.csv -parts 2
+```
+
+Atau jalankan dengan lokasi folder, lalu pilih file dari daftar yang muncul:
+
+```powershell
+.\csvsplitter.exe -dir .\dir
+```
+
+Contoh interaksi:
+
+```text
+CSV files found:
+1. customer.csv
+2. report.csv
+3. transaksi.csv
+
+Choose file number: 3
+Split into how many parts: 2
+Split complete: 2 file(s) created in dir\transaksi_split
+```
+
+Jika file CSV berada di folder lain, gunakan path lengkap:
+
+```powershell
+.\csvsplitter.exe -file "D:\data\transaksi.csv" -parts 5
+```
+
+Output akan dibuat di folder yang sama dengan file CSV sumber:
+
+```text
+D:\data\transaksi_split\
+  transaksi_part_1.csv
+  transaksi_part_2.csv
+  transaksi_part_3.csv
+  transaksi_part_4.csv
+  transaksi_part_5.csv
+```
+
 ## Makefile
 
 Beberapa command umum sudah tersedia:
