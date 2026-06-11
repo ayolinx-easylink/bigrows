@@ -11,10 +11,34 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
+
+var paymentRecordHeader = []string{
+	"Date and Time",
+	"Merchant ID",
+	"Merchant Name",
+	"Transaction Type",
+	"Payment Channel",
+	"Ayolinx Transaction ID",
+	"Partner Refference Number",
+	"Transaction Amount",
+	"Admin Fee",
+	"VAT Type",
+	"VAT(11%)",
+	"Transaction Settled",
+	"Transaction Status",
+	"Settlement Status",
+	"Merchant Transaction ID",
+	"Merchant Refference Number",
+	"Shop ID",
+	"Settlement Type",
+	"Create Time",
+}
 
 func main() {
 	dir := flag.String("dir", ".", "folder containing CSV files")
@@ -37,6 +61,20 @@ type cliOptions struct {
 	dir   string
 	file  string
 	parts int
+}
+
+type csvRecordReader interface {
+	Read() ([]string, error)
+}
+
+type standardCSVReader struct {
+	reader      *csv.Reader
+	firstRecord bool
+}
+
+type outerQuotedCSVReader struct {
+	reader      *bufio.Reader
+	firstRecord bool
 }
 
 func run(options cliOptions) error {
@@ -175,18 +213,26 @@ func countRows(filePath string) (totalRows int, header []string, err error) {
 		}
 	}()
 
-	reader := csv.NewReader(file)
-	reader.FieldsPerRecord = -1
+	reader, err := newCSVRecordReader(file)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to inspect CSV format in %s: %w", filePath, err)
+	}
 
-	header, err = reader.Read()
+	firstRecord, err := reader.Read()
 	if errors.Is(err, io.EOF) {
 		return 0, nil, fmt.Errorf("CSV file is empty: %s", filePath)
 	}
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to read CSV header from %s: %w", filePath, err)
 	}
-	if len(header) == 0 {
+	if len(firstRecord) == 0 {
 		return 0, nil, fmt.Errorf("CSV file has no header: %s", filePath)
+	}
+
+	header = firstRecord
+	if firstFieldLooksLikeDateTime(firstRecord[0]) {
+		header = generatedHeader(len(firstRecord))
+		totalRows = 1
 	}
 
 	for {
@@ -201,6 +247,32 @@ func countRows(filePath string) (totalRows int, header []string, err error) {
 	}
 
 	return totalRows, header, nil
+}
+
+func generatedHeader(columnCount int) []string {
+	if columnCount == len(paymentRecordHeader) {
+		return slices.Clone(paymentRecordHeader)
+	}
+
+	header := make([]string, columnCount)
+	for i := range header {
+		header[i] = fmt.Sprintf("column_%d", i+1)
+	}
+	return header
+}
+
+func firstFieldLooksLikeDateTime(value string) bool {
+	layouts := []string{
+		"02-01-2006 15:04:05",
+		"2006-01-02 15:04:05",
+		time.RFC3339,
+	}
+	for _, layout := range layouts {
+		if _, err := time.Parse(layout, value); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func splitCSV(filePath string, parts int) (outputDir string, createdParts int, err error) {
@@ -246,11 +318,18 @@ func splitCSV(filePath string, parts int) (outputDir string, createdParts int, e
 		}
 	}()
 
-	reader := csv.NewReader(input)
-	reader.FieldsPerRecord = -1
+	reader, err := newCSVRecordReader(input)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to inspect CSV format in %s: %w", filePath, err)
+	}
 
-	if _, err := reader.Read(); err != nil {
+	firstRecord, err := reader.Read()
+	if err != nil {
 		return "", 0, fmt.Errorf("failed to read CSV header from %s: %w", filePath, err)
+	}
+	var pendingRecord []string
+	if !slices.Equal(firstRecord, header) {
+		pendingRecord = firstRecord
 	}
 
 	var currentFile *os.File
@@ -267,7 +346,12 @@ func splitCSV(filePath string, parts int) (outputDir string, createdParts int, e
 	}()
 
 	for {
-		record, readErr := reader.Read()
+		record := pendingRecord
+		pendingRecord = nil
+		var readErr error
+		if record == nil {
+			record, readErr = reader.Read()
+		}
 		if errors.Is(readErr, io.EOF) {
 			break
 		}
@@ -297,6 +381,88 @@ func splitCSV(filePath string, parts int) (outputDir string, createdParts int, e
 	}
 
 	return outputDir, createdParts, nil
+}
+
+func newCSVRecordReader(file *os.File) (csvRecordReader, error) {
+	outerQuoted, err := isOuterQuotedCSV(file)
+	if err != nil {
+		return nil, err
+	}
+
+	if outerQuoted {
+		return &outerQuotedCSVReader{
+			reader:      bufio.NewReader(file),
+			firstRecord: true,
+		}, nil
+	}
+
+	reader := csv.NewReader(file)
+	reader.FieldsPerRecord = -1
+	return &standardCSVReader{
+		reader:      reader,
+		firstRecord: true,
+	}, nil
+}
+
+func isOuterQuotedCSV(file *os.File) (bool, error) {
+	reader := bufio.NewReader(file)
+	line, readErr := reader.ReadString('\n')
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return false, readErr
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return false, err
+	}
+
+	line = strings.TrimPrefix(line, "\uFEFF")
+	line = strings.TrimSuffix(line, "\n")
+	line = strings.TrimSuffix(line, "\r")
+	if len(line) < 2 || line[0] != '"' || line[len(line)-1] != '"' {
+		return false, nil
+	}
+
+	normalized := strings.ReplaceAll(line[1:len(line)-1], `""`, `"`)
+	probe := csv.NewReader(strings.NewReader(normalized))
+	probe.FieldsPerRecord = -1
+	record, err := probe.Read()
+	return err == nil && len(record) > 1, nil
+}
+
+func (r *standardCSVReader) Read() ([]string, error) {
+	record, err := r.reader.Read()
+	if err != nil {
+		return nil, err
+	}
+	if r.firstRecord && len(record) > 0 {
+		record[0] = strings.TrimPrefix(record[0], "\uFEFF")
+		r.firstRecord = false
+	}
+	return record, nil
+}
+
+func (r *outerQuotedCSVReader) Read() ([]string, error) {
+	line, readErr := r.reader.ReadString('\n')
+	if errors.Is(readErr, io.EOF) && len(line) == 0 {
+		return nil, io.EOF
+	}
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return nil, readErr
+	}
+
+	if r.firstRecord {
+		line = strings.TrimPrefix(line, "\uFEFF")
+		r.firstRecord = false
+	}
+	line = strings.TrimSuffix(line, "\n")
+	line = strings.TrimSuffix(line, "\r")
+	if len(line) < 2 || line[0] != '"' || line[len(line)-1] != '"' {
+		return nil, fmt.Errorf("expected an outer-quoted CSV row")
+	}
+
+	line = strings.ReplaceAll(line[1:len(line)-1], `""`, `"`)
+	reader := csv.NewReader(strings.NewReader(line))
+	reader.FieldsPerRecord = -1
+	return reader.Read()
 }
 
 func createOutputFile(outputDir, baseName string, partIndex int, header []string) (*os.File, *csv.Writer, error) {

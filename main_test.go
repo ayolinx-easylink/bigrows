@@ -111,6 +111,53 @@ func TestSplitCSVInconsistentColumnCount(t *testing.T) {
 	})
 }
 
+func TestSplitCSVOuterQuotedRowsWithBOM(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "export.csv")
+	writeFile(t, path, "\uFEFF\"id,\"\"merchant name\"\",amount\"\r\n\"1,\"\"PT Langit\"\",10000\"\r\n\"2,\"\"PT Bumi\"\",20000\"\r\n")
+
+	outputDir, createdParts, err := splitCSV(path, 2)
+	if err != nil {
+		t.Fatalf("splitCSV returned error: %v", err)
+	}
+
+	if createdParts != 2 {
+		t.Fatalf("expected 2 created parts, got %d", createdParts)
+	}
+
+	assertCSVRecords(t, filepath.Join(outputDir, "export_part_1.csv"), [][]string{
+		{"id", "merchant name", "amount"},
+		{"1", "PT Langit", "10000"},
+	})
+	assertCSVRecords(t, filepath.Join(outputDir, "export_part_2.csv"), [][]string{
+		{"id", "merchant name", "amount"},
+		{"2", "PT Bumi", "20000"},
+	})
+}
+
+func TestSplitCSVOuterQuotedRowsWithoutHeader(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "headerless.csv")
+	writeFile(t, path, "\"07-06-2026 23:59:59,627,\"\"PT Langit\"\"\"\r\n\"08-06-2026 00:00:00,628,\"\"PT Bumi\"\"\"\r\n")
+
+	outputDir, createdParts, err := splitCSV(path, 2)
+	if err != nil {
+		t.Fatalf("splitCSV returned error: %v", err)
+	}
+	if createdParts != 2 {
+		t.Fatalf("expected 2 created parts, got %d", createdParts)
+	}
+
+	assertCSVRecords(t, filepath.Join(outputDir, "headerless_part_1.csv"), [][]string{
+		{"column_1", "column_2", "column_3"},
+		{"07-06-2026 23:59:59", "627", "PT Langit"},
+	})
+	assertCSVRecords(t, filepath.Join(outputDir, "headerless_part_2.csv"), [][]string{
+		{"column_1", "column_2", "column_3"},
+		{"08-06-2026 00:00:00", "628", "PT Bumi"},
+	})
+}
+
 func TestRunFileModeWithParts(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "direct.csv")

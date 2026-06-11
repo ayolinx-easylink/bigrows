@@ -1,0 +1,4 @@
+id,tanggal,pelanggan,total,status
+TRX006,2026-06-03,CUST005,45000,pending
+TRX007,2026-06-04,CUST002,120000,paid
+TRX008,2026-06-04,CUST006,67000,paid

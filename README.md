@@ -145,9 +145,18 @@ Aplikasi melakukan dua kali pembacaan streaming:
 
 Tidak ada penggunaan `ReadAll()` pada proses utama, dan data CSV tidak disimpan ke slice besar.
 
+Aplikasi juga mengenali file ekspor yang membungkus seluruh baris dengan tanda kutip
+dan menggandakan tanda kutip pada field. Format tersebut dinormalisasi per baris
+sebelum diproses oleh `encoding/csv`.
+
+Jika file payment record tidak memiliki header, aplikasi menambahkan header 19 kolom
+payment record secara otomatis. Format tanpa header lainnya memakai nama
+`column_1`, `column_2`, dan seterusnya. Hasil split selalu ditulis sebagai CSV standar.
+
 ## Batasan
 
 - Output folder `<nama_file>_split` akan ditimpa jika sudah ada.
-- File CSV harus memiliki header.
+- File CSV tanpa header akan diberi header otomatis.
 - File CSV tanpa baris data tidak akan dibuatkan output part kosong.
 - Format CSV dibaca mengikuti perilaku standar `encoding/csv`.
+- Format baris yang seluruhnya dibungkus tanda kutip tidak mendukung field dengan baris baru.
