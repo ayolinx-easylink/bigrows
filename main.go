@@ -68,8 +68,7 @@ type csvRecordReader interface {
 }
 
 type standardCSVReader struct {
-	reader      *csv.Reader
-	firstRecord bool
+	reader *csv.Reader
 }
 
 type outerQuotedCSVReader struct {
@@ -396,12 +395,26 @@ func newCSVRecordReader(file *os.File) (csvRecordReader, error) {
 		}, nil
 	}
 
-	reader := csv.NewReader(file)
+	buffered := bufio.NewReader(file)
+	if err := discardUTF8BOM(buffered); err != nil {
+		return nil, err
+	}
+
+	reader := csv.NewReader(buffered)
 	reader.FieldsPerRecord = -1
-	return &standardCSVReader{
-		reader:      reader,
-		firstRecord: true,
-	}, nil
+	return &standardCSVReader{reader: reader}, nil
+}
+
+func discardUTF8BOM(reader *bufio.Reader) error {
+	bom, err := reader.Peek(3)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, bufio.ErrBufferFull) {
+		return err
+	}
+	if len(bom) == 3 && bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF {
+		_, err = reader.Discard(3)
+		return err
+	}
+	return nil
 }
 
 func isOuterQuotedCSV(file *os.File) (bool, error) {
@@ -429,15 +442,7 @@ func isOuterQuotedCSV(file *os.File) (bool, error) {
 }
 
 func (r *standardCSVReader) Read() ([]string, error) {
-	record, err := r.reader.Read()
-	if err != nil {
-		return nil, err
-	}
-	if r.firstRecord && len(record) > 0 {
-		record[0] = strings.TrimPrefix(record[0], "\uFEFF")
-		r.firstRecord = false
-	}
-	return record, nil
+	return r.reader.Read()
 }
 
 func (r *outerQuotedCSVReader) Read() ([]string, error) {

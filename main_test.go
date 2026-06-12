@@ -135,6 +135,30 @@ func TestSplitCSVOuterQuotedRowsWithBOM(t *testing.T) {
 	})
 }
 
+func TestSplitCSVStandardQuotedRowsWithBOM(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "standard-export.csv")
+	writeFile(t, path, "\uFEFF\"id\",\"merchant name\",amount\n\"1\",\"PT Langit\",10000\n\"2\",\"PT Bumi\",20000\n")
+
+	outputDir, createdParts, err := splitCSV(path, 2)
+	if err != nil {
+		t.Fatalf("splitCSV returned error: %v", err)
+	}
+
+	if createdParts != 2 {
+		t.Fatalf("expected 2 created parts, got %d", createdParts)
+	}
+
+	assertCSVRecords(t, filepath.Join(outputDir, "standard-export_part_1.csv"), [][]string{
+		{"id", "merchant name", "amount"},
+		{"1", "PT Langit", "10000"},
+	})
+	assertCSVRecords(t, filepath.Join(outputDir, "standard-export_part_2.csv"), [][]string{
+		{"id", "merchant name", "amount"},
+		{"2", "PT Bumi", "20000"},
+	})
+}
+
 func TestSplitCSVOuterQuotedRowsWithoutHeader(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "headerless.csv")
